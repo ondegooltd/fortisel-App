@@ -71,4 +71,4 @@ The static output will be in `dist/` (or as configured by Expo).
 - For iOS/Android simulators, ensure Xcode/Android Studio emulators are installed and running.
 
 ## License
-Proprietary. All rights reserved. 
+Proprietary. All rights reserved. # fortisel
