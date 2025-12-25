@@ -23,12 +23,10 @@
     "experiments": {
       "typedRoutes": true
     },
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "assetBundlePatterns": ["**/*"],
     "extra": {
-      "API_BASE_URL": "http://192.168.124.81:3000/api", 
-      "API_TIMEOUT": 10000,
+      "API_BASE_URL": "http://172.20.10.3:3000/api",
+      "API_TIMEOUT": 30000,
       "GOOGLE_WEB_CLIENT_ID": "",
       "GOOGLE_IOS_CLIENT_ID": "",
       "GOOGLE_ANDROID_CLIENT_ID": "",

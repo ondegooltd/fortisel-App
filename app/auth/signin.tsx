@@ -1,5 +1,13 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, Image, ScrollView } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  Image,
+  ScrollView,
+} from 'react-native';
 import { router } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS } from '@/constants/colors';
@@ -14,15 +22,38 @@ export default function SigninScreen() {
 
   const { signin } = useAuth();
 
+  const isFormValid = () => {
+    const hasPhone =
+      phoneNumber.trim().length >= 10 &&
+      /^[0-9+\-\s()]+$/.test(phoneNumber.trim());
+    const hasPassword = password.trim().length >= 8;
+    return hasPhone && hasPassword;
+  };
+
   const handleSignIn = async () => {
-    if (phoneNumber && password) {
+    if (isFormValid()) {
+      console.log('🔑 Signin attempt with:', {
+        phoneNumber,
+        password: password.substring(0, 3) + '***',
+      });
       const result = await signin.execute(phoneNumber, password);
-      if (result?.success && result.data?.token) {
-        await AsyncStorage.setItem('userToken', result.data.token);
+      console.log('🔍 Signin result:', {
+        success: result?.success,
+        hasAccessToken: !!result?.accessToken,
+        hasUser: !!result?.user,
+        message: result?.message,
+      });
+
+      if (result?.success && result.accessToken) {
+        console.log('✅ Signin successful, storing token and redirecting...');
+        await AsyncStorage.setItem('userToken', result.accessToken);
         if (rememberMe) {
           await AsyncStorage.setItem('rememberMe', 'true');
         }
+        console.log('🚀 Redirecting to home screen...');
         router.replace('/(tabs)');
+      } else {
+        console.log('❌ Signin failed or missing data:', result);
       }
     }
   };
@@ -35,20 +66,42 @@ export default function SigninScreen() {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.logo}>Ondegoo</Text>
-      
+      <Text style={styles.logo}>Fortisel</Text>
+
       <View style={styles.formContainer}>
         <Text style={styles.title}>Sign In</Text>
 
         <View style={styles.inputContainer}>
           <TextInput
-            style={styles.input}
-            placeholder="Enter Phone Number"
+            style={[
+              styles.input,
+              phoneNumber.trim().length > 0 &&
+                (phoneNumber.trim().length < 10 ||
+                  !/^[0-9+\-\s()]+$/.test(phoneNumber.trim())) &&
+                styles.inputError,
+            ]}
+            placeholder="Enter Phone Number (e.g., 0531129204)"
             placeholderTextColor={COLORS.lightGray}
             keyboardType="phone-pad"
             value={phoneNumber}
-            onChangeText={setPhoneNumber}
+            onChangeText={(text) => {
+              // Remove invalid characters and keep only digits, +, -, spaces, and parentheses
+              const cleaned = text.replace(/[^0-9+\-\s()]/g, '');
+              setPhoneNumber(cleaned);
+            }}
           />
+          {phoneNumber.trim().length > 0 && phoneNumber.trim().length < 10 && (
+            <Text style={styles.errorText}>
+              Phone number must be at least 10 digits
+            </Text>
+          )}
+          {phoneNumber.trim().length > 0 &&
+            !/^[0-9+\-\s()]+$/.test(phoneNumber.trim()) && (
+              <Text style={styles.errorText}>
+                Phone number can only contain digits, +, -, spaces, and
+                parentheses
+              </Text>
+            )}
         </View>
 
         <View style={styles.inputContainer}>
@@ -73,7 +126,7 @@ export default function SigninScreen() {
         </View>
 
         <View style={styles.rememberForgotContainer}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.rememberContainer}
             onPress={() => setRememberMe(!rememberMe)}
           >
@@ -83,15 +136,20 @@ export default function SigninScreen() {
             <Text style={styles.rememberText}>Remember me</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={() => router.push('/auth/forgot-password')}>
+          <TouchableOpacity
+            onPress={() => router.push('/auth/forgot-password')}
+          >
             <Text style={styles.forgotText}>Forgotten Password?</Text>
           </TouchableOpacity>
         </View>
 
         <TouchableOpacity
-          style={[styles.button, (!phoneNumber || !password || signin.loading) && styles.disabledButton]}
+          style={[
+            styles.button,
+            (!isFormValid() || signin.loading) && styles.disabledButton,
+          ]}
           onPress={handleSignIn}
-          disabled={!phoneNumber || !password || signin.loading}
+          disabled={!isFormValid() || signin.loading}
         >
           <Text style={styles.buttonText}>
             {signin.loading ? 'Signing in...' : 'Continue'}
@@ -104,9 +162,14 @@ export default function SigninScreen() {
           <View style={styles.line} />
         </View>
 
-        <TouchableOpacity style={styles.googleButton} onPress={handleGoogleSignIn}>
-          <Image 
-            source={{ uri: 'https://images.pexels.com/photos/270408/pexels-photo-270408.jpeg?auto=compress&cs=tinysrgb&w=50' }}
+        <TouchableOpacity
+          style={styles.googleButton}
+          onPress={handleGoogleSignIn}
+        >
+          <Image
+            source={{
+              uri: 'https://images.pexels.com/photos/270408/pexels-photo-270408.jpeg?auto=compress&cs=tinysrgb&w=50',
+            }}
             style={styles.googleIcon}
           />
           <Text style={styles.googleButtonText}>Sign in with Google</Text>
@@ -156,6 +219,16 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 15,
     color: 'white',
+    fontFamily: 'Inter-Regular',
+  },
+  inputError: {
+    borderColor: '#FF6B6B',
+    borderWidth: 1,
+  },
+  errorText: {
+    color: '#FF6B6B',
+    fontSize: 12,
+    marginTop: 5,
     fontFamily: 'Inter-Regular',
   },
   eyeIcon: {

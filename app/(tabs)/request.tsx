@@ -1,27 +1,48 @@
-import { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Modal, Image, Alert } from 'react-native';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  TextInput,
+  ScrollView,
+  Modal,
+  Image,
+  Alert,
+  ActivityIndicator,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { COLORS } from '@/constants/colors';
-import { MapPin, Map, Plus, Minus, ChevronDown, Phone, ArrowLeft, Calendar } from 'lucide-react-native';
+import {
+  MapPin,
+  Map,
+  Plus,
+  Minus,
+  ChevronDown,
+  Phone,
+  ArrowLeft,
+  Calendar,
+} from 'lucide-react-native';
 import { v4 as uuidv4 } from 'uuid';
-import { useOrders } from '@/hooks/useApi';
+import { useCylinders } from '@/hooks/useApi';
+import { Cylinder, CylinderSize } from '@/utils/api';
 
-const cylinderSizeOptions = [
-  { label: '5kg-8kg (Smallest Size)', value: '5kg-8kg', deliveryFee: 20 },
-  { label: '9kg-12kg (Small Size)', value: '9kg-12kg', deliveryFee: 20 },
-  { label: '13kg-16kg (Medium Size)', value: '13kg-16kg', deliveryFee: 25 },
-  { label: '17kg-20kg (Big Size)', value: '17kg-20kg', deliveryFee: 32 },
-  { label: '21kg-24kg (Large Size)', value: '21kg-24kg', deliveryFee: 35 },
-  { label: '25kg-30kg (Largest/Commercial Size)', value: '25kg-30kg', deliveryFee: 40 },
-];
+interface CylinderOption {
+  label: string;
+  value: CylinderSize;
+  deliveryFee: number;
+  description?: string;
+}
 
 const momoProviders = ['MTN', 'Telecel', 'AirtelTigo'];
 
 const momoProviderLogos: Record<string, string> = {
   MTN: 'https://upload.wikimedia.org/wikipedia/commons/6/6e/MTN_Logo.svg',
-  Telecel: 'https://seeklogo.com/images/T/telecel-logo-6B1B6B6B2B-seeklogo.com.png',
-  AirtelTigo: 'https://upload.wikimedia.org/wikipedia/commons/2/2e/AirtelTigo_logo.png',
+  Telecel:
+    'https://seeklogo.com/images/T/telecel-logo-6B1B6B6B2B-seeklogo.com.png',
+  AirtelTigo:
+    'https://upload.wikimedia.org/wikipedia/commons/2/2e/AirtelTigo_logo.png',
 };
 
 export default function RequestScreen() {
@@ -32,7 +53,10 @@ export default function RequestScreen() {
   const [receiverName, setReceiverName] = useState('');
   const [receiverPhone, setReceiverPhone] = useState('');
   const [refillAmount, setRefillAmount] = useState('');
-  const [selectedCylinderSize, setSelectedCylinderSize] = useState(cylinderSizeOptions[0]);
+  const [cylinderOptions, setCylinderOptions] = useState<CylinderOption[]>([]);
+  const [loadingCylinders, setLoadingCylinders] = useState(true);
+  const [selectedCylinderSize, setSelectedCylinderSize] =
+    useState<CylinderOption | null>(null);
   const [paymentMethod, setPaymentMethod] = useState('Cash On Pickup');
   const [selectedMomoProvider, setSelectedMomoProvider] = useState('MTN');
   const [notes, setNotes] = useState('');
@@ -41,11 +65,84 @@ export default function RequestScreen() {
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showPaystackModal, setShowPaystackModal] = useState(false);
 
-  const currentDeliveryFee = selectedCylinderSize.deliveryFee * quantity;
+  const { getCylinders } = useCylinders();
+  const getCylindersRef = useRef(getCylinders.execute);
+
+  // Update ref when getCylinders changes
+  useEffect(() => {
+    getCylindersRef.current = getCylinders.execute;
+  }, [getCylinders.execute]);
+
+  const getCylinderLabel = (cylinderSize: CylinderSize): string => {
+    const labels: Record<CylinderSize, string> = {
+      smallest: '5kg-8kg (Smallest Size)',
+      small: '9kg-12kg (Small Size)',
+      medium: '13kg-16kg (Medium Size)',
+      big: '17kg-20kg (Big Size)',
+      large: '21kg-24kg (Large Size)',
+      commercial: '25kg-30kg (Largest/Commercial Size)',
+    };
+    return labels[cylinderSize] || cylinderSize;
+  };
+
+  const loadCylinders = useCallback(async () => {
+    try {
+      setLoadingCylinders(true);
+      const result = await getCylindersRef.current();
+      if (result?.success && result.data && Array.isArray(result.data)) {
+        // Transform backend cylinders to match UI format
+        const transformed: CylinderOption[] = result.data.map(
+          (cylinder: Cylinder) => ({
+            label: getCylinderLabel(cylinder.size),
+            value: cylinder.size,
+            deliveryFee: cylinder.deliveryFee,
+            description: cylinder.description,
+          })
+        );
+        setCylinderOptions(transformed);
+
+        // Set initial selected cylinder if not already set or if size param changed
+        if (transformed.length > 0) {
+          // If size param is provided, find matching cylinder
+          if (size) {
+            const matchingCylinder = transformed.find((c) => c.value === size);
+            if (matchingCylinder) {
+              setSelectedCylinderSize(matchingCylinder);
+            } else if (!selectedCylinderSize) {
+              setSelectedCylinderSize(transformed[0]);
+            }
+          } else if (!selectedCylinderSize) {
+            setSelectedCylinderSize(transformed[0]);
+          }
+        }
+      } else {
+        console.warn('Failed to load cylinders: Invalid response');
+      }
+    } catch (error) {
+      console.error('Failed to load cylinders:', error);
+    } finally {
+      setLoadingCylinders(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [size]); // Only depend on size param, not selectedCylinderSize to avoid infinite loop
+
+  // Load cylinders on initial mount
+  useEffect(() => {
+    loadCylinders();
+  }, [loadCylinders]);
+
+  // Reload cylinders when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      loadCylinders();
+    }, [loadCylinders])
+  );
+
+  const currentDeliveryFee = selectedCylinderSize
+    ? selectedCylinderSize.deliveryFee * quantity
+    : 0;
   const currentRefillAmount = (parseFloat(refillAmount) || 0) * quantity;
   const totalAmount = currentRefillAmount + currentDeliveryFee;
-
-  const { createOrder } = useOrders();
 
   const handleQuantityChange = (change: number) => {
     const newQuantity = quantity + change;
@@ -54,43 +151,54 @@ export default function RequestScreen() {
     }
   };
 
-  const handleMakeRequest = async () => {
+  const handleMakeRequest = () => {
+    // Validate required fields
     if (!receiverName || !receiverPhone || !dropOffAddress) {
       Alert.alert('Missing Information', 'Please fill in all required fields');
       return;
     }
 
-    const orderData = {
-      cylinderSize: selectedCylinderSize.label,
-      quantity: quantity,
-      refillAmount: currentRefillAmount,
-      deliveryFee: currentDeliveryFee,
-      totalAmount: totalAmount,
-      receiverName: receiverName,
-      receiverPhone: receiverPhone,
-      deliveryAddress: dropOffAddress,
-      notes: notes,
-    };
-
-    const result = await createOrder.execute(orderData);
-    if (result?.success && result.data) {
-      router.push({
-        pathname: '/summary',
-        params: { 
-          orderId: result.data.orderId,
-          cylinderSize: selectedCylinderSize.label,
-          quantity: quantity.toString(),
-          refillAmount: currentRefillAmount.toString(),
-          deliveryFee: currentDeliveryFee.toString(),
-          totalAmount: totalAmount.toString(),
-          receiverName: receiverName,
-          receiverPhone: receiverPhone,
-          deliveryAddress: dropOffAddress,
-          notes: notes,
-          isScheduled: 'false'
-        }
-      });
+    // Validate refillAmount
+    if (!refillAmount || parseFloat(refillAmount) <= 0) {
+      Alert.alert('Invalid Amount', 'Please enter a valid refill amount');
+      return;
     }
+
+    // Ensure all required numeric fields are valid
+    const finalRefillAmount =
+      currentRefillAmount > 0
+        ? currentRefillAmount
+        : parseFloat(refillAmount) || 0.01;
+    const finalTotalAmount =
+      totalAmount > 0 ? totalAmount : finalRefillAmount + currentDeliveryFee;
+
+    if (!selectedCylinderSize) {
+      Alert.alert('Missing Information', 'Please select a cylinder size');
+      return;
+    }
+
+    // Navigate to summary screen WITHOUT creating order
+    // Order will be created when user confirms on summary screen
+    router.push({
+      pathname: '/summary',
+      params: {
+        // Pass order data as params (order will be created on summary screen)
+        cylinderSize: selectedCylinderSize.value, // Enum value for backend
+        cylinderSizeLabel: selectedCylinderSize.label, // Display label
+        quantity: quantity.toString(),
+        refillAmount: finalRefillAmount.toString(),
+        deliveryFee: currentDeliveryFee.toString(),
+        totalAmount: finalTotalAmount.toString(),
+        pickupAddress: pickupAddress || '',
+        dropOffAddress: dropOffAddress,
+        receiverName: receiverName,
+        receiverPhone: receiverPhone,
+        paymentMethod:
+          paymentMethod === 'Cash On Pickup' ? 'cash' : 'mobile_money',
+        notes: notes || '',
+        isScheduled: 'false',
+      },
+    });
   };
 
   const handlePaystackSuccess = () => {
@@ -108,7 +216,10 @@ export default function RequestScreen() {
         <TouchableOpacity style={[styles.tab, styles.activeTab]}>
           <Text style={styles.activeTabText}>Request</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.tab} onPress={() => router.push('/(tabs)/schedule')}>
+        <TouchableOpacity
+          style={styles.tab}
+          onPress={() => router.push('/(tabs)/schedule')}
+        >
           <Text style={styles.tabText}>Schedule</Text>
         </TouchableOpacity>
       </View>
@@ -117,7 +228,11 @@ export default function RequestScreen() {
         <View style={styles.formGroup}>
           <Text style={styles.label}>Pickup Address *</Text>
           <View style={styles.inputContainer}>
-            <MapPin size={20} color={COLORS.darkText} style={styles.inputIcon} />
+            <MapPin
+              size={20}
+              color={COLORS.darkText}
+              style={styles.inputIcon}
+            />
             <TextInput
               style={styles.input}
               placeholder="Enter pickup location"
@@ -158,27 +273,42 @@ export default function RequestScreen() {
 
         <View style={styles.formGroup}>
           <Text style={styles.label}>Cylinder Size</Text>
-          <TouchableOpacity 
-            style={styles.selectionBox}
-            onPress={() => setShowCylinderModal(true)}
-          >
-            <Text style={styles.selectionText}>{selectedCylinderSize.label}</Text>
-            <ChevronDown size={20} color={COLORS.darkText} />
-          </TouchableOpacity>
+          {loadingCylinders ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color={COLORS.primary} />
+              <Text style={styles.loadingText}>
+                Loading cylinder options...
+              </Text>
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={styles.selectionBox}
+              onPress={() => setShowCylinderModal(true)}
+              disabled={!selectedCylinderSize}
+            >
+              <Text style={styles.selectionText}>
+                {selectedCylinderSize?.label || 'Select cylinder size'}
+              </Text>
+              <ChevronDown size={20} color={COLORS.darkText} />
+            </TouchableOpacity>
+          )}
         </View>
 
         <View style={styles.formGroup}>
           <Text style={styles.label}>Multiple refill</Text>
           <View style={styles.quantityContainer}>
-            <TouchableOpacity 
-              style={styles.quantityButton} 
+            <TouchableOpacity
+              style={styles.quantityButton}
               onPress={() => handleQuantityChange(-1)}
               disabled={quantity <= 1}
             >
-              <Minus size={20} color={quantity <= 1 ? '#999' : COLORS.darkText} />
+              <Minus
+                size={20}
+                color={quantity <= 1 ? '#999' : COLORS.darkText}
+              />
             </TouchableOpacity>
             <Text style={styles.quantityText}>{quantity}</Text>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.quantityButton}
               onPress={() => handleQuantityChange(1)}
             >
@@ -188,26 +318,31 @@ export default function RequestScreen() {
         </View>
 
         <View style={styles.formGroup}>
-          <Text style={styles.label}>Delivery Fee: GHS {currentDeliveryFee}</Text>
-          <Text style={styles.label}>Total Amount: GHS {totalAmount.toFixed(2)}</Text>
+          <Text style={styles.label}>
+            Delivery Fee: GHS {currentDeliveryFee}
+          </Text>
+          <Text style={styles.label}>
+            Total Amount: GHS {totalAmount.toFixed(2)}
+          </Text>
         </View>
 
         <View style={styles.formGroup}>
           <Text style={styles.label}>Payment Option</Text>
           <View style={styles.paymentOptions}>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[
-                styles.paymentOption, 
-                paymentMethod === 'Cash On Pickup' && styles.selectedPaymentOption
+                styles.paymentOption,
+                paymentMethod === 'Cash On Pickup' &&
+                  styles.selectedPaymentOption,
               ]}
               onPress={() => setPaymentMethod('Cash On Pickup')}
             >
               <Text style={styles.paymentOptionText}>Cash On Pickup</Text>
             </TouchableOpacity>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[
-                styles.paymentOption, 
-                paymentMethod === 'Momo' && styles.selectedPaymentOption
+                styles.paymentOption,
+                paymentMethod === 'Momo' && styles.selectedPaymentOption,
               ]}
               onPress={() => {
                 setPaymentMethod('Momo');
@@ -258,13 +393,27 @@ export default function RequestScreen() {
         </View>
 
         <TouchableOpacity
-          style={[styles.requestButton, (!receiverName || !receiverPhone || !dropOffAddress || createOrder.loading) && styles.disabledButton]}
+          style={[
+            styles.requestButton,
+            (!receiverName ||
+              !receiverPhone ||
+              !dropOffAddress ||
+              !selectedCylinderSize ||
+              !refillAmount ||
+              parseFloat(refillAmount) <= 0) &&
+              styles.disabledButton,
+          ]}
           onPress={handleMakeRequest}
-          disabled={!receiverName || !receiverPhone || !dropOffAddress || createOrder.loading}
+          disabled={
+            !receiverName ||
+            !receiverPhone ||
+            !dropOffAddress ||
+            !selectedCylinderSize ||
+            !refillAmount ||
+            parseFloat(refillAmount) <= 0
+          }
         >
-          <Text style={styles.requestButtonText}>
-            {createOrder.loading ? 'Creating Order...' : 'Make Request'}
-          </Text>
+          <Text style={styles.requestButtonText}>Make Request</Text>
         </TouchableOpacity>
       </ScrollView>
 
@@ -277,25 +426,54 @@ export default function RequestScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Select Cylinder Size</Text>
-            <ScrollView style={styles.modalScrollView} showsVerticalScrollIndicator={false}>
-              {cylinderSizeOptions.map((option) => (
-                <TouchableOpacity
-                  key={option.value}
-                  style={[
-                    styles.modalOption,
-                    selectedCylinderSize.value === option.value && styles.selectedModalOption
-                  ]}
-                  onPress={() => {
-                    setSelectedCylinderSize(option);
-                    setShowCylinderModal(false);
-                  }}
-                >
-                  <Text style={styles.modalOptionText}>{option.label}</Text>
-                  <Text style={styles.modalOptionFee}>Delivery: GHS {option.deliveryFee}</Text>
-                </TouchableOpacity>
-              ))}
+            <ScrollView
+              style={styles.modalScrollView}
+              showsVerticalScrollIndicator={false}
+            >
+              {loadingCylinders ? (
+                <View style={styles.modalLoadingContainer}>
+                  <ActivityIndicator size="large" color={COLORS.primary} />
+                  <Text style={styles.loadingText}>
+                    Loading cylinder options...
+                  </Text>
+                </View>
+              ) : cylinderOptions.length === 0 ? (
+                <View style={styles.modalLoadingContainer}>
+                  <Text style={styles.loadingText}>
+                    No cylinder options available
+                  </Text>
+                </View>
+              ) : (
+                cylinderOptions.map((option) => (
+                  <TouchableOpacity
+                    key={option.value}
+                    style={[
+                      styles.modalOption,
+                      selectedCylinderSize?.value === option.value &&
+                        styles.selectedModalOption,
+                    ]}
+                    onPress={() => {
+                      setSelectedCylinderSize(option);
+                      setShowCylinderModal(false);
+                    }}
+                  >
+                    <Text style={styles.modalOptionText}>{option.label}</Text>
+                    <Text style={styles.modalOptionFee}>
+                      Delivery: GHS {option.deliveryFee}
+                    </Text>
+                    {option.description && (
+                      <Text
+                        style={styles.modalOptionDescription}
+                        numberOfLines={2}
+                      >
+                        {option.description}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                ))
+              )}
             </ScrollView>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.modalCloseButton}
               onPress={() => setShowCylinderModal(false)}
             >
@@ -306,11 +484,7 @@ export default function RequestScreen() {
       </Modal>
 
       {/* Momo Provider Modal */}
-      <Modal
-        visible={showMomoModal}
-        animationType="slide"
-        transparent={true}
-      >
+      <Modal visible={showMomoModal} animationType="slide" transparent={true}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Select Momo Provider</Text>
@@ -319,7 +493,8 @@ export default function RequestScreen() {
                 key={provider}
                 style={[
                   styles.modalOption,
-                  selectedMomoProvider === provider && styles.selectedModalOption
+                  selectedMomoProvider === provider &&
+                    styles.selectedModalOption,
                 ]}
                 onPress={() => {
                   setSelectedMomoProvider(provider);
@@ -329,14 +504,20 @@ export default function RequestScreen() {
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <Image
                     source={{ uri: momoProviderLogos[provider] }}
-                    style={{ width: 32, height: 32, marginRight: 10, borderRadius: 6, backgroundColor: '#eee' }}
+                    style={{
+                      width: 32,
+                      height: 32,
+                      marginRight: 10,
+                      borderRadius: 6,
+                      backgroundColor: '#eee',
+                    }}
                     resizeMode="contain"
                   />
                   <Text style={styles.modalOptionText}>{provider}</Text>
                 </View>
               </TouchableOpacity>
             ))}
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.modalCloseButton}
               onPress={() => setShowMomoModal(false)}
             >
@@ -356,7 +537,9 @@ export default function RequestScreen() {
           <View style={styles.successModalContent}>
             <Text style={styles.successTitle}>Request Successful!</Text>
             <Text style={styles.successMessage}>
-              Your refill request has been successfully made, you will receive a phone call in the next 5 minutes to confirm your request. If it delays, call customer support on 0205400925.
+              Your refill request has been successfully made, you will receive a
+              phone call in the next 5 minutes to confirm your request. If it
+              delays, call customer support on 0205400925.
             </Text>
             <TouchableOpacity
               style={styles.successButton}
@@ -364,7 +547,7 @@ export default function RequestScreen() {
                 setShowSuccessModal(false);
                 router.replace({
                   pathname: '/(tabs)/orders',
-                  params: { orderPlaced: 'true' }
+                  params: { orderPlaced: 'true' },
                 });
               }}
             >
@@ -567,6 +750,33 @@ const styles = StyleSheet.create({
     color: COLORS.darkText,
     opacity: 0.7,
     marginTop: 2,
+  },
+  modalOptionDescription: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 12,
+    color: COLORS.darkText,
+    opacity: 0.6,
+    marginTop: 4,
+    lineHeight: 16,
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 20,
+    gap: 10,
+  },
+  loadingText: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 14,
+    color: COLORS.darkText,
+    opacity: 0.7,
+  },
+  modalLoadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+    gap: 10,
   },
   modalCloseButton: {
     backgroundColor: COLORS.primary,

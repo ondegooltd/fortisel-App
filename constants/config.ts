@@ -4,13 +4,15 @@ import Constants from 'expo-constants';
 // You'll need to configure these in app.json or app.config.js
 export const CONFIG = {
   // API Configuration
-  API_BASE_URL: Constants.expoConfig?.extra?.API_BASE_URL || 'http://localhost:3000/api',
+  API_BASE_URL:
+    Constants.expoConfig?.extra?.API_BASE_URL || 'http://172.20.10.3:3000/api',
   API_TIMEOUT: Constants.expoConfig?.extra?.API_TIMEOUT || 10000,
 
   // Google Services
   GOOGLE_WEB_CLIENT_ID: Constants.expoConfig?.extra?.GOOGLE_WEB_CLIENT_ID || '',
   GOOGLE_IOS_CLIENT_ID: Constants.expoConfig?.extra?.GOOGLE_IOS_CLIENT_ID || '',
-  GOOGLE_ANDROID_CLIENT_ID: Constants.expoConfig?.extra?.GOOGLE_ANDROID_CLIENT_ID || '',
+  GOOGLE_ANDROID_CLIENT_ID:
+    Constants.expoConfig?.extra?.GOOGLE_ANDROID_CLIENT_ID || '',
 
   // App Configuration
   APP_NAME: Constants.expoConfig?.extra?.APP_NAME || 'Fortisel',
@@ -29,8 +31,10 @@ export const CONFIG = {
 
   // Feature Flags
   ENABLE_ANALYTICS: Constants.expoConfig?.extra?.ENABLE_ANALYTICS || false,
-  ENABLE_CRASH_REPORTING: Constants.expoConfig?.extra?.ENABLE_CRASH_REPORTING || false,
-  ENABLE_PUSH_NOTIFICATIONS: Constants.expoConfig?.extra?.ENABLE_PUSH_NOTIFICATIONS || true,
+  ENABLE_CRASH_REPORTING:
+    Constants.expoConfig?.extra?.ENABLE_CRASH_REPORTING || false,
+  ENABLE_PUSH_NOTIFICATIONS:
+    Constants.expoConfig?.extra?.ENABLE_PUSH_NOTIFICATIONS || true,
 };
 
 // Helper function to check if we're in development mode
@@ -44,4 +48,4 @@ export const getApiUrl = (endpoint: string) => {
   const baseUrl = CONFIG.API_BASE_URL.replace(/\/$/, ''); // Remove trailing slash
   const cleanEndpoint = endpoint.replace(/^\//, ''); // Remove leading slash
   return `${baseUrl}/${cleanEndpoint}`;
-}; 
+};

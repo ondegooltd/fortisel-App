@@ -1,52 +1,145 @@
-import { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Modal, Alert } from 'react-native';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  TextInput,
+  ScrollView,
+  Modal,
+  Alert,
+  ActivityIndicator,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { COLORS } from '@/constants/colors';
-import { Calendar, Clock, ChevronDown, Map, User, Phone, MapPin, Plus, Minus } from 'lucide-react-native';
+import {
+  Calendar,
+  Clock,
+  ChevronDown,
+  Map,
+  User,
+  Phone,
+  MapPin,
+  Plus,
+  Minus,
+} from 'lucide-react-native';
 import { v4 as uuidv4 } from 'uuid';
-import { useOrders } from '@/hooks/useApi';
+import { useCylinders } from '@/hooks/useApi';
+import { Cylinder, CylinderSize } from '@/utils/api';
 
-const cylinderSizeOptions = [
-  { label: '5kg-8kg (Smallest Size)', value: '5kg-8kg', deliveryFee: 20 },
-  { label: '9kg-12kg (Small Size)', value: '9kg-12kg', deliveryFee: 20 },
-  { label: '13kg-16kg (Medium Size)', value: '13kg-16kg', deliveryFee: 25 },
-  { label: '17kg-20kg (Big Size)', value: '17kg-20kg', deliveryFee: 32 },
-  { label: '21kg-24kg (Large Size)', value: '21kg-24kg', deliveryFee: 35 },
-  { label: '25kg-30kg (Largest/Commercial Size)', value: '25kg-30kg', deliveryFee: 40 },
-];
+interface CylinderOption {
+  label: string;
+  value: CylinderSize;
+  deliveryFee: number;
+  description?: string;
+}
 
 const momoProviders = ['MTN', 'Telecel', 'AirtelTigo'];
 
 const timeOptions = [
-  '08:00 AM', '09:00 AM', '10:00 AM', '11:00 AM', '12:00 PM',
-  '01:00 PM', '02:00 PM', '03:00 PM', '04:00 PM', '05:00 PM'
+  '08:00',
+  '09:00',
+  '10:00',
+  '11:00',
+  '12:00',
+  '13:00',
+  '14:00',
+  '15:00',
+  '16:00',
+  '17:00',
 ];
 
 export default function ScheduleScreen() {
   const [date, setDate] = useState('');
-  const [time, setTime] = useState('10:00 AM');
+  const [time, setTime] = useState('10:00');
   const [pickupAddress, setPickupAddress] = useState('');
   const [dropOffAddress, setDropOffAddress] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [refillAmount, setRefillAmount] = useState('');
-  const [selectedCylinderSize, setSelectedCylinderSize] = useState(cylinderSizeOptions[0]);
+  const [cylinderOptions, setCylinderOptions] = useState<CylinderOption[]>([]);
+  const [loadingCylinders, setLoadingCylinders] = useState(true);
+  const [selectedCylinderSize, setSelectedCylinderSize] =
+    useState<CylinderOption | null>(null);
   const [quantity, setQuantity] = useState(1);
   const [paymentMethod, setPaymentMethod] = useState('Cash On Pickup');
   const [selectedMomoProvider, setSelectedMomoProvider] = useState('MTN');
   const [receiverName, setReceiverName] = useState('');
   const [receiverPhone, setReceiverPhone] = useState('');
-  
+
   const [showDateModal, setShowDateModal] = useState(false);
   const [showTimeModal, setShowTimeModal] = useState(false);
   const [showCylinderModal, setShowCylinderModal] = useState(false);
   const [showMomoModal, setShowMomoModal] = useState(false);
 
-  const currentDeliveryFee = selectedCylinderSize.deliveryFee * quantity;
+  const { getCylinders } = useCylinders();
+  const getCylindersRef = useRef(getCylinders.execute);
+
+  // Update ref when getCylinders changes
+  useEffect(() => {
+    getCylindersRef.current = getCylinders.execute;
+  }, [getCylinders.execute]);
+
+  const getCylinderLabel = (cylinderSize: CylinderSize): string => {
+    const labels: Record<CylinderSize, string> = {
+      smallest: '5kg-8kg (Smallest Size)',
+      small: '9kg-12kg (Small Size)',
+      medium: '13kg-16kg (Medium Size)',
+      big: '17kg-20kg (Big Size)',
+      large: '21kg-24kg (Large Size)',
+      commercial: '25kg-30kg (Largest/Commercial Size)',
+    };
+    return labels[cylinderSize] || cylinderSize;
+  };
+
+  const loadCylinders = useCallback(async () => {
+    try {
+      setLoadingCylinders(true);
+      const result = await getCylindersRef.current();
+      if (result?.success && result.data && Array.isArray(result.data)) {
+        // Transform backend cylinders to match UI format
+        const transformed: CylinderOption[] = result.data.map(
+          (cylinder: Cylinder) => ({
+            label: getCylinderLabel(cylinder.size),
+            value: cylinder.size,
+            deliveryFee: cylinder.deliveryFee,
+            description: cylinder.description,
+          })
+        );
+        setCylinderOptions(transformed);
+
+        // Set initial selected cylinder if not already set
+        if (transformed.length > 0 && !selectedCylinderSize) {
+          setSelectedCylinderSize(transformed[0]);
+        }
+      } else {
+        console.warn('Failed to load cylinders: Invalid response');
+      }
+    } catch (error) {
+      console.error('Failed to load cylinders:', error);
+    } finally {
+      setLoadingCylinders(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only depend on size param, not selectedCylinderSize to avoid infinite loop
+
+  // Load cylinders on initial mount
+  useEffect(() => {
+    loadCylinders();
+  }, [loadCylinders]);
+
+  // Reload cylinders when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      loadCylinders();
+    }, [loadCylinders])
+  );
+
+  const currentDeliveryFee = selectedCylinderSize
+    ? selectedCylinderSize.deliveryFee * quantity
+    : 0;
   const currentRefillAmount = (parseFloat(refillAmount) || 0) * quantity;
   const totalAmount = currentRefillAmount + currentDeliveryFee;
-
-  const { createOrder } = useOrders();
 
   const handleQuantityChange = (change: number) => {
     const newQuantity = quantity + change;
@@ -62,59 +155,79 @@ export default function ScheduleScreen() {
       const date = new Date(today);
       date.setDate(today.getDate() + i);
       dates.push({
-        label: date.toLocaleDateString('en-US', { 
-          weekday: 'long', 
-          year: 'numeric', 
-          month: 'long', 
-          day: 'numeric' 
+        label: date.toLocaleDateString('en-US', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
         }),
-        value: date.toISOString().split('T')[0]
+        value: date.toISOString().split('T')[0],
       });
     }
     return dates;
   };
 
-  const handleScheduleNow = async () => {
-    if (!receiverName || !receiverPhone || !pickupAddress || !dropOffAddress || !refillAmount || !date || !time) {
-      Alert.alert('Missing Information', 'Please fill in all required fields including scheduled date and time');
+  const handleScheduleNow = () => {
+    // Validate required fields
+    if (
+      !receiverName ||
+      !receiverPhone ||
+      !pickupAddress ||
+      !dropOffAddress ||
+      !refillAmount ||
+      !date ||
+      !time
+    ) {
+      Alert.alert(
+        'Missing Information',
+        'Please fill in all required fields including scheduled date and time'
+      );
       return;
     }
 
-    const orderData = {
-      cylinderSize: selectedCylinderSize.label,
-      quantity: quantity,
-      refillAmount: currentRefillAmount,
-      deliveryFee: currentDeliveryFee,
-      totalAmount: totalAmount,
-      receiverName: receiverName,
-      receiverPhone: receiverPhone,
-      deliveryAddress: pickupAddress,
-      notes: '', // No notes field in this form
-      scheduledDate: date,
-      scheduledTime: time,
-    };
-
-    const result = await createOrder.execute(orderData);
-    if (result?.success && result.data) {
-      router.push({
-        pathname: '/summary',
-        params: { 
-          orderId: result.data.orderId,
-          cylinderSize: selectedCylinderSize.label,
-          quantity: quantity.toString(),
-          refillAmount: currentRefillAmount.toString(),
-          deliveryFee: currentDeliveryFee.toString(),
-          totalAmount: totalAmount.toString(),
-          receiverName: receiverName,
-          receiverPhone: receiverPhone,
-          deliveryAddress: pickupAddress,
-          notes: '',
-          scheduledDate: date,
-          scheduledTime: time,
-          isScheduled: 'true'
-        }
-      });
+    if (!selectedCylinderSize) {
+      Alert.alert('Missing Information', 'Please select a cylinder size');
+      return;
     }
+
+    // Validate refillAmount
+    if (!refillAmount || parseFloat(refillAmount) <= 0) {
+      Alert.alert('Invalid Amount', 'Please enter a valid refill amount');
+      return;
+    }
+
+    // Ensure all required numeric fields are valid
+    const finalRefillAmount =
+      currentRefillAmount > 0
+        ? currentRefillAmount
+        : parseFloat(refillAmount) || 0.01;
+    const finalTotalAmount =
+      totalAmount > 0 ? totalAmount : finalRefillAmount + currentDeliveryFee;
+
+    // Navigate to summary screen WITHOUT creating order
+    // Order will be created when user confirms on summary screen
+    router.push({
+      pathname: '/summary',
+      params: {
+        // Pass order data as params (order will be created on summary screen)
+        cylinderSize: selectedCylinderSize.value, // Enum value for backend
+        cylinderSizeLabel: selectedCylinderSize.label, // Display label
+        quantity: quantity.toString(),
+        refillAmount: finalRefillAmount.toString(),
+        deliveryFee: currentDeliveryFee.toString(),
+        totalAmount: finalTotalAmount.toString(),
+        pickupAddress: pickupAddress || '',
+        dropOffAddress: dropOffAddress,
+        receiverName: receiverName,
+        receiverPhone: receiverPhone,
+        paymentMethod:
+          paymentMethod === 'Cash On Pickup' ? 'cash' : 'mobile_money',
+        notes: '',
+        scheduledDate: date, // ISO format (YYYY-MM-DD)
+        scheduledTime: time, // HH:MM format (24-hour)
+        isScheduled: 'true',
+      },
+    });
   };
 
   return (
@@ -124,7 +237,10 @@ export default function ScheduleScreen() {
       </View>
 
       <View style={styles.tabs}>
-        <TouchableOpacity style={styles.tab} onPress={() => router.push('/(tabs)/request')}>
+        <TouchableOpacity
+          style={styles.tab}
+          onPress={() => router.push('/(tabs)/request')}
+        >
           <Text style={styles.tabText}>Request</Text>
         </TouchableOpacity>
         <TouchableOpacity style={[styles.tab, styles.activeTab]}>
@@ -135,21 +251,27 @@ export default function ScheduleScreen() {
       <ScrollView style={styles.content}>
         <View style={styles.scheduleSection}>
           <Text style={styles.sectionTitle}>Schedule Refill</Text>
-          
+
           <View style={styles.formGroup}>
             <Text style={styles.label}>Choose a date *</Text>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.inputContainer}
               onPress={() => setShowDateModal(true)}
             >
-              <Calendar size={20} color={COLORS.darkText} style={styles.inputIcon} />
+              <Calendar
+                size={20}
+                color={COLORS.darkText}
+                style={styles.inputIcon}
+              />
               <Text style={[styles.input, !date && styles.placeholder]}>
-                {date ? new Date(date).toLocaleDateString('en-US', { 
-                  weekday: 'long', 
-                  year: 'numeric', 
-                  month: 'long', 
-                  day: 'numeric' 
-                }) : 'Select Date'}
+                {date
+                  ? new Date(date).toLocaleDateString('en-US', {
+                      weekday: 'long',
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric',
+                    })
+                  : 'Select Date'}
               </Text>
               <ChevronDown size={20} color={COLORS.darkText} />
             </TouchableOpacity>
@@ -157,11 +279,15 @@ export default function ScheduleScreen() {
 
           <View style={styles.formGroup}>
             <Text style={styles.label}>Time</Text>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.inputContainer}
               onPress={() => setShowTimeModal(true)}
             >
-              <Clock size={20} color={COLORS.darkText} style={styles.inputIcon} />
+              <Clock
+                size={20}
+                color={COLORS.darkText}
+                style={styles.inputIcon}
+              />
               <Text style={styles.input}>{time}</Text>
               <ChevronDown size={20} color={COLORS.darkText} />
             </TouchableOpacity>
@@ -170,7 +296,11 @@ export default function ScheduleScreen() {
           <View style={styles.formGroup}>
             <Text style={styles.label}>Pickup Address *</Text>
             <View style={styles.inputContainer}>
-              <MapPin size={20} color={COLORS.darkText} style={styles.inputIcon} />
+              <MapPin
+                size={20}
+                color={COLORS.darkText}
+                style={styles.inputIcon}
+              />
               <TextInput
                 style={styles.input}
                 placeholder="Enter pickup location"
@@ -226,27 +356,42 @@ export default function ScheduleScreen() {
 
           <View style={styles.formGroup}>
             <Text style={styles.label}>Cylinder Size</Text>
-            <TouchableOpacity 
-              style={styles.selectInput}
-              onPress={() => setShowCylinderModal(true)}
-            >
-              <Text style={styles.selectText}>{selectedCylinderSize.label}</Text>
-              <ChevronDown size={20} color={COLORS.darkText} />
-            </TouchableOpacity>
+            {loadingCylinders ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="small" color={COLORS.primary} />
+                <Text style={styles.loadingText}>
+                  Loading cylinder options...
+                </Text>
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={styles.selectInput}
+                onPress={() => setShowCylinderModal(true)}
+                disabled={!selectedCylinderSize}
+              >
+                <Text style={styles.selectText}>
+                  {selectedCylinderSize?.label || 'Select cylinder size'}
+                </Text>
+                <ChevronDown size={20} color={COLORS.darkText} />
+              </TouchableOpacity>
+            )}
           </View>
 
           <View style={styles.formGroup}>
             <Text style={styles.label}>Multiple refill</Text>
             <View style={styles.quantityContainer}>
-              <TouchableOpacity 
-                style={styles.quantityButton} 
+              <TouchableOpacity
+                style={styles.quantityButton}
                 onPress={() => handleQuantityChange(-1)}
                 disabled={quantity <= 1}
               >
-                <Minus size={20} color={quantity <= 1 ? '#999' : COLORS.darkText} />
+                <Minus
+                  size={20}
+                  color={quantity <= 1 ? '#999' : COLORS.darkText}
+                />
               </TouchableOpacity>
               <Text style={styles.quantityText}>{quantity}</Text>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={styles.quantityButton}
                 onPress={() => handleQuantityChange(1)}
               >
@@ -256,26 +401,31 @@ export default function ScheduleScreen() {
           </View>
 
           <View style={styles.formGroup}>
-            <Text style={styles.label}>Delivery Fee: GHS {currentDeliveryFee}</Text>
-            <Text style={styles.label}>Total Amount: GHS {totalAmount.toFixed(2)}</Text>
+            <Text style={styles.label}>
+              Delivery Fee: GHS {currentDeliveryFee}
+            </Text>
+            <Text style={styles.label}>
+              Total Amount: GHS {totalAmount.toFixed(2)}
+            </Text>
           </View>
 
           <View style={styles.formGroup}>
             <Text style={styles.label}>Payment Option</Text>
             <View style={styles.paymentOptions}>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={[
-                  styles.paymentOption, 
-                  paymentMethod === 'Cash On Pickup' && styles.selectedPaymentOption
+                  styles.paymentOption,
+                  paymentMethod === 'Cash On Pickup' &&
+                    styles.selectedPaymentOption,
                 ]}
                 onPress={() => setPaymentMethod('Cash On Pickup')}
               >
                 <Text style={styles.paymentOptionText}>Cash On Pickup</Text>
               </TouchableOpacity>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={[
-                  styles.paymentOption, 
-                  paymentMethod === 'Momo' && styles.selectedPaymentOption
+                  styles.paymentOption,
+                  paymentMethod === 'Momo' && styles.selectedPaymentOption,
                 ]}
                 onPress={() => {
                   setPaymentMethod('Momo');
@@ -288,11 +438,17 @@ export default function ScheduleScreen() {
           </View>
 
           <View style={styles.receiverSection}>
-            <Text style={styles.subsectionTitle}>Receiver <Text style={{color: 'red'}}>*</Text></Text>
-            
+            <Text style={styles.subsectionTitle}>
+              Receiver <Text style={{ color: 'red' }}>*</Text>
+            </Text>
+
             <View style={styles.formGroup}>
               <View style={styles.inputContainer}>
-                <User size={20} color={COLORS.darkText} style={styles.inputIcon} />
+                <User
+                  size={20}
+                  color={COLORS.darkText}
+                  style={styles.inputIcon}
+                />
                 <TextInput
                   style={styles.input}
                   placeholder="Full name *"
@@ -305,7 +461,11 @@ export default function ScheduleScreen() {
 
             <View style={styles.formGroup}>
               <View style={styles.inputContainer}>
-                <Phone size={20} color={COLORS.darkText} style={styles.inputIcon} />
+                <Phone
+                  size={20}
+                  color={COLORS.darkText}
+                  style={styles.inputIcon}
+                />
                 <TextInput
                   style={styles.input}
                   placeholder="Phone number *"
@@ -320,22 +480,38 @@ export default function ScheduleScreen() {
         </View>
 
         <TouchableOpacity
-          style={[styles.scheduleButton, (!receiverName || !receiverPhone || !pickupAddress || !dropOffAddress || !refillAmount || !date || !time || createOrder.loading) && styles.disabledButton]}
+          style={[
+            styles.scheduleButton,
+            (!receiverName ||
+              !receiverPhone ||
+              !pickupAddress ||
+              !dropOffAddress ||
+              !refillAmount ||
+              parseFloat(refillAmount) <= 0 ||
+              !date ||
+              !time ||
+              !selectedCylinderSize) &&
+              styles.disabledButton,
+          ]}
           onPress={handleScheduleNow}
-          disabled={!receiverName || !receiverPhone || !pickupAddress || !dropOffAddress || !refillAmount || !date || !time || createOrder.loading}
+          disabled={
+            !receiverName ||
+            !receiverPhone ||
+            !pickupAddress ||
+            !dropOffAddress ||
+            !refillAmount ||
+            parseFloat(refillAmount) <= 0 ||
+            !date ||
+            !time ||
+            !selectedCylinderSize
+          }
         >
-          <Text style={styles.scheduleButtonText}>
-            {createOrder.loading ? 'Scheduling Order...' : 'Schedule Now'}
-          </Text>
+          <Text style={styles.scheduleButtonText}>Schedule Now</Text>
         </TouchableOpacity>
       </ScrollView>
 
       {/* Date Modal */}
-      <Modal
-        visible={showDateModal}
-        animationType="slide"
-        transparent={true}
-      >
+      <Modal visible={showDateModal} animationType="slide" transparent={true}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Select Date</Text>
@@ -345,7 +521,7 @@ export default function ScheduleScreen() {
                   key={option.value}
                   style={[
                     styles.modalOption,
-                    date === option.value && styles.selectedModalOption
+                    date === option.value && styles.selectedModalOption,
                   ]}
                   onPress={() => {
                     setDate(option.value);
@@ -356,7 +532,7 @@ export default function ScheduleScreen() {
                 </TouchableOpacity>
               ))}
             </ScrollView>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.modalCloseButton}
               onPress={() => setShowDateModal(false)}
             >
@@ -367,11 +543,7 @@ export default function ScheduleScreen() {
       </Modal>
 
       {/* Time Modal */}
-      <Modal
-        visible={showTimeModal}
-        animationType="slide"
-        transparent={true}
-      >
+      <Modal visible={showTimeModal} animationType="slide" transparent={true}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Select Time</Text>
@@ -380,7 +552,7 @@ export default function ScheduleScreen() {
                 key={option}
                 style={[
                   styles.modalOption,
-                  time === option && styles.selectedModalOption
+                  time === option && styles.selectedModalOption,
                 ]}
                 onPress={() => {
                   setTime(option);
@@ -390,7 +562,7 @@ export default function ScheduleScreen() {
                 <Text style={styles.modalOptionText}>{option}</Text>
               </TouchableOpacity>
             ))}
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.modalCloseButton}
               onPress={() => setShowTimeModal(false)}
             >
@@ -409,25 +581,54 @@ export default function ScheduleScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Select Cylinder Size</Text>
-            <ScrollView style={styles.modalScrollView} showsVerticalScrollIndicator={false}>
-              {cylinderSizeOptions.map((option) => (
-                <TouchableOpacity
-                  key={option.value}
-                  style={[
-                    styles.modalOption,
-                    selectedCylinderSize.value === option.value && styles.selectedModalOption
-                  ]}
-                  onPress={() => {
-                    setSelectedCylinderSize(option);
-                    setShowCylinderModal(false);
-                  }}
-                >
-                  <Text style={styles.modalOptionText}>{option.label}</Text>
-                  <Text style={styles.modalOptionFee}>Delivery: GHS {option.deliveryFee}</Text>
-                </TouchableOpacity>
-              ))}
+            <ScrollView
+              style={styles.modalScrollView}
+              showsVerticalScrollIndicator={false}
+            >
+              {loadingCylinders ? (
+                <View style={styles.modalLoadingContainer}>
+                  <ActivityIndicator size="large" color={COLORS.primary} />
+                  <Text style={styles.loadingText}>
+                    Loading cylinder options...
+                  </Text>
+                </View>
+              ) : cylinderOptions.length === 0 ? (
+                <View style={styles.modalLoadingContainer}>
+                  <Text style={styles.loadingText}>
+                    No cylinder options available
+                  </Text>
+                </View>
+              ) : (
+                cylinderOptions.map((option) => (
+                  <TouchableOpacity
+                    key={option.value}
+                    style={[
+                      styles.modalOption,
+                      selectedCylinderSize?.value === option.value &&
+                        styles.selectedModalOption,
+                    ]}
+                    onPress={() => {
+                      setSelectedCylinderSize(option);
+                      setShowCylinderModal(false);
+                    }}
+                  >
+                    <Text style={styles.modalOptionText}>{option.label}</Text>
+                    <Text style={styles.modalOptionFee}>
+                      Delivery: GHS {option.deliveryFee}
+                    </Text>
+                    {option.description && (
+                      <Text
+                        style={styles.modalOptionDescription}
+                        numberOfLines={2}
+                      >
+                        {option.description}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                ))
+              )}
             </ScrollView>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.modalCloseButton}
               onPress={() => setShowCylinderModal(false)}
             >
@@ -438,11 +639,7 @@ export default function ScheduleScreen() {
       </Modal>
 
       {/* Momo Provider Modal */}
-      <Modal
-        visible={showMomoModal}
-        animationType="slide"
-        transparent={true}
-      >
+      <Modal visible={showMomoModal} animationType="slide" transparent={true}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Select Momo Provider</Text>
@@ -451,7 +648,8 @@ export default function ScheduleScreen() {
                 key={provider}
                 style={[
                   styles.modalOption,
-                  selectedMomoProvider === provider && styles.selectedModalOption
+                  selectedMomoProvider === provider &&
+                    styles.selectedModalOption,
                 ]}
                 onPress={() => {
                   setSelectedMomoProvider(provider);
@@ -461,7 +659,7 @@ export default function ScheduleScreen() {
                 <Text style={styles.modalOptionText}>{provider}</Text>
               </TouchableOpacity>
             ))}
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.modalCloseButton}
               onPress={() => setShowMomoModal(false)}
             >
@@ -681,6 +879,33 @@ const styles = StyleSheet.create({
     color: COLORS.darkText,
     opacity: 0.7,
     marginTop: 2,
+  },
+  modalOptionDescription: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 12,
+    color: COLORS.darkText,
+    opacity: 0.6,
+    marginTop: 4,
+    lineHeight: 16,
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 20,
+    gap: 10,
+  },
+  loadingText: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 14,
+    color: COLORS.darkText,
+    opacity: 0.7,
+  },
+  modalLoadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+    gap: 10,
   },
   modalCloseButton: {
     backgroundColor: COLORS.primary,

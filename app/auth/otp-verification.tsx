@@ -1,5 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  Alert,
+} from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS } from '@/constants/colors';
@@ -8,10 +15,12 @@ import { useAuth } from '@/hooks/useApi';
 
 export default function OTPVerificationScreen() {
   const { context } = useLocalSearchParams();
-  const [otp, setOTP] = useState(['', '', '', '']);
+  const [otp, setOTP] = useState(['', '', '', '', '', '']);
   const [timer, setTimer] = useState(30);
   const [phoneNumber, setPhoneNumber] = useState(''); // You might want to pass this as a param
   const inputRefs = [
+    useRef<TextInput>(null),
+    useRef<TextInput>(null),
     useRef<TextInput>(null),
     useRef<TextInput>(null),
     useRef<TextInput>(null),
@@ -23,7 +32,7 @@ export default function OTPVerificationScreen() {
   useEffect(() => {
     if (timer > 0) {
       const interval = setInterval(() => {
-        setTimer(prevTimer => prevTimer - 1);
+        setTimer((prevTimer) => prevTimer - 1);
       }, 1000);
       return () => clearInterval(interval);
     }
@@ -36,7 +45,7 @@ export default function OTPVerificationScreen() {
     const newOtp = [...otp];
     newOtp[index] = text;
     setOTP(newOtp);
-    if (text !== '' && index < 3) {
+    if (text !== '' && index < 5) {
       inputRefs[index + 1].current?.focus();
     }
   };
@@ -49,19 +58,26 @@ export default function OTPVerificationScreen() {
 
   const handleVerify = async () => {
     const otpValue = otp.join('');
-    if (otpValue.length === 4) {
-      const result = await verifyOTP.execute(phoneNumber || 'demo-phone', otpValue, context);
+    if (otpValue.length === 6) {
+      const result = await verifyOTP.execute(
+        phoneNumber || 'demo-phone',
+        otpValue,
+        context
+      );
       if (result?.success) {
         if (context === 'reset') {
           router.push('/auth/reset-password');
         } else if (context === 'signup') {
-          await AsyncStorage.setItem('userToken', result.data?.token || 'verified-token');
+          await AsyncStorage.setItem(
+            'userToken',
+            result.data?.token || 'verified-token'
+          );
           await AsyncStorage.setItem('hasSeenOnboarding', 'true');
           router.replace('/(tabs)');
         }
       }
     } else {
-      Alert.alert('Invalid OTP', 'Please enter all 4 digits');
+      Alert.alert('Invalid OTP', 'Please enter all 6 digits');
     }
   };
 
@@ -74,18 +90,17 @@ export default function OTPVerificationScreen() {
 
   return (
     <View style={styles.container}>
-      <TouchableOpacity 
-        style={styles.backButton}
-        onPress={() => router.back()}
-      >
+      <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
         <Feather name="arrow-left" size={24} color="white" />
       </TouchableOpacity>
 
-      <Text style={styles.logo}>Ondegoo</Text>
-      
+      <Text style={styles.logo}>Fortisel</Text>
+
       <View style={styles.formContainer}>
         <Text style={styles.title}>Verification</Text>
-        <Text style={styles.subtitle}>We have sent an OTP{'\n'}to your phone</Text>
+        <Text style={styles.subtitle}>
+          We have sent an OTP{'\n'}to your phone
+        </Text>
 
         <View style={styles.otpContainer}>
           {otp.map((digit, index) => (
@@ -104,7 +119,10 @@ export default function OTPVerificationScreen() {
         </View>
 
         <TouchableOpacity
-          style={[styles.button, (otp.includes('') || verifyOTP.loading) && styles.disabledButton]}
+          style={[
+            styles.button,
+            (otp.includes('') || verifyOTP.loading) && styles.disabledButton,
+          ]}
           onPress={handleVerify}
           disabled={otp.includes('') || verifyOTP.loading}
         >
@@ -118,11 +136,16 @@ export default function OTPVerificationScreen() {
           {timer > 0 ? (
             <Text style={styles.timerText}>Resend in {timer}s</Text>
           ) : (
-            <TouchableOpacity 
+            <TouchableOpacity
               onPress={handleResendOTP}
               disabled={sendOTP.loading}
             >
-              <Text style={[styles.resendLink, sendOTP.loading && styles.disabledText]}>
+              <Text
+                style={[
+                  styles.resendLink,
+                  sendOTP.loading && styles.disabledText,
+                ]}
+              >
                 {sendOTP.loading ? 'Sending...' : 'Resend OTP'}
               </Text>
             </TouchableOpacity>
